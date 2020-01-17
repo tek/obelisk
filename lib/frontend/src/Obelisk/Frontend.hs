@@ -83,6 +83,7 @@ type ObeliskWidget js t route m =
   , PrebuildAgnostic t route (Client m)
   , HasConfigs m
   , HasCookies m
+  , MonadIO (Performable m)
   )
 
 type PrebuildAgnostic t route m =
@@ -144,7 +145,7 @@ data FrontendMode = FrontendMode
 -- Selects FrontendMode based on platform; this doesn't work for jsaddle-warp
 runFrontend
   :: forall backendRoute route
-  .  Encoder Identity Identity (R (Sum backendRoute (ObeliskRoute route))) PageName
+  .  Encoder Identity Identity (R (FullRoute backendRoute route)) PageName
   -> Frontend (R route)
   -> JSM ()
 runFrontend validFullEncoder frontend = do
@@ -172,14 +173,14 @@ runFrontend validFullEncoder frontend = do
   runFrontendWithConfigsAndCurrentRoute mode configs validFullEncoder frontend
 
 runFrontendWithConfigsAndCurrentRoute
-  :: forall backendRoute route
+  :: forall backendRoute frontendRoute
   .  FrontendMode
   -> Map Text ByteString
-  -> Encoder Identity Identity (R (Sum backendRoute (ObeliskRoute route))) PageName
-  -> Frontend (R route)
+  -> Encoder Identity Identity (R (FullRoute backendRoute frontendRoute)) PageName
+  -> Frontend (R frontendRoute)
   -> JSM ()
 runFrontendWithConfigsAndCurrentRoute mode configs validFullEncoder frontend = do
-  let ve = validFullEncoder . hoistParse errorLeft (prismEncoder (rPrism $ _InR . _ObeliskRoute_App))
+  let ve = validFullEncoder . hoistParse errorLeft (prismEncoder (rPrism $ _FullRoute_Frontend . _ObeliskRoute_App))
       errorLeft = \case
         Left _ -> error "runFrontend: Unexpected non-app ObeliskRoute reached the frontend. This shouldn't happen."
         Right x -> Identity x
@@ -228,7 +229,7 @@ runFrontendWithConfigsAndCurrentRoute mode configs validFullEncoder frontend = d
 renderFrontendHtml
   :: ( t ~ DomTimeline
      , MonadIO m
-     , widget ~ RoutedT t r (SetRouteT t r (RouteToUrlT r (ConfigsT (CookiesT (PostBuildT t (StaticDomBuilderT t (PerformEventT t DomHost)))))))
+     , widget ~ RoutedT t r (SetRouteT t r (RouteToUrlT r (ConfigsT (CookiesT (HydratableT (PostBuildT t (StaticDomBuilderT t (PerformEventT t DomHost))))))))
      )
   => Map Text ByteString
   -> Cookies
@@ -240,7 +241,7 @@ renderFrontendHtml
   -> m ByteString
 renderFrontendHtml configs cookies urlEnc route frontend headExtra bodyExtra = do
   --TODO: We should probably have a "NullEventWriterT" or a frozen reflex timeline
-  html <- fmap snd $ liftIO $ renderStatic $ fmap fst $ runCookiesT cookies $ runConfigsT configs $ flip runRouteToUrlT urlEnc $ runSetRouteT $ flip runRoutedT (pure route) $
+  html <- fmap snd $ liftIO $ renderStatic $ runHydratableT $ fmap fst $ runCookiesT cookies $ runConfigsT configs $ flip runRouteToUrlT urlEnc $ runSetRouteT $ flip runRoutedT (pure route) $
     el "html" $ do
       el "head" $ do
         baseTag
