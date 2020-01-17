@@ -21,6 +21,7 @@
 module Obelisk.Route
   ( R ((:/))
   , (:.) ((:.))
+  , (?/)
   , hoistR
   , PageName
   , PathQuery
@@ -192,10 +193,16 @@ import Data.Aeson (FromJSON, ToJSON)
 
 type R f = DSum f Identity --TODO: Better name
 
-{-# COMPLETE (:/) #-}
-infixr 5 :/
+-- | Convenience builder for an 'R' using 'Identity' for the functor.
 pattern (:/) :: f a -> a -> R f
 pattern a :/ b = a :=> Identity b
+{-# COMPLETE (:/) #-}
+infixr 5 :/
+
+-- | Like '(:/)' but adds a 'Just' wrapper around the right-hand side.
+(?/) :: f (Maybe a) -> a -> R f
+r ?/ a = r :/ Just a
+infixr 5 ?/
 
 mapSome :: (forall a. f a -> g a) -> Some f -> Some g
 mapSome f (Some a) = Some $ f a
