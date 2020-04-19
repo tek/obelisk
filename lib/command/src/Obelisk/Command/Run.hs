@@ -377,6 +377,7 @@ makeBaseGhciOptions dotGhci =
   unwords
     [ "-no-user-package-db"
     , "-package-env -"
+    , "-hide-package base"
     , "-ghci-script " <> dotGhci
     ]
 
