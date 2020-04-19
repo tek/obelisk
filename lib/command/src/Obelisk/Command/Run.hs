@@ -56,7 +56,7 @@ import qualified Hpack.Yaml as Hpack
 import Language.Haskell.Extension
 import Network.Socket hiding (Debug)
 import System.Directory
-import System.Environment (getExecutablePath)
+import System.Environment (getExecutablePath, lookupEnv)
 import System.FilePath
 import System.IO.Temp (withSystemTempDirectory)
 import qualified System.Info
@@ -429,6 +429,7 @@ getGhciSessionSettings
   -> FilePath -- ^ All paths will be relative to this path
   -> m [String]
 getGhciSessionSettings (toList -> packageInfos) pathBase = do
+  hideBase <- maybe False (const True) <$> liftIO (lookupEnv "HIDE_BASE")
   -- N.B. ghci settings do NOT support escaping in any way. To minimize the likelihood that
   -- paths-with-spaces ruin our day, we first canonicalize everything, and then relativize
   -- all paths to 'pathBase'.
@@ -441,18 +442,17 @@ getGhciSessionSettings (toList -> packageInfos) pathBase = do
     pure (canonicalPkgFile `relativeTo` canonicalPathBase, (`relativeTo` canonicalPathBase) <$> canonicalSrcDirs)
 
   pure
-    $  baseGhciOptions
+    $  baseGhciOptions hideBase
     <> ["-F", "-pgmF", selfExe, "-optF", preprocessorIdentifier]
     <> concatMap (\p -> ["-optF", p]) pkgFiles
     <> [ "-i" <> intercalate ":" (concatMap toList pkgSrcPaths) ]
 
-baseGhciOptions :: [String]
-baseGhciOptions =
+baseGhciOptions :: Bool -> [String]
+baseGhciOptions hideBase =
   [ "-ignore-dot-ghci"
   , "-no-user-package-db"
   , "-package-env", "-"
-  , "-hide-package", "base"
-  ]
+  ] <> if hideBase then ["-hide-package", "base"] else []
 
 -- | Run ghci repl
 runGhciRepl
