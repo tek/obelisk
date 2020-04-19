@@ -151,6 +151,16 @@ runWatch = withProjectRoot "." $ \root -> do
   withGhciScript pkgs root $ \dotGhciPath ->
     runGhcid root True dotGhciPath pkgs Nothing
 
+exportGhciConfig :: MonadObelisk m => m [String]
+exportGhciConfig = withProjectRoot "." $ \root -> do
+  pkgs <- fmap toList . parsePackagesOrFail =<< getLocalPkgs root
+  getGhciSessionSettings pkgs "."
+
+nixShellForUnpackedPackages :: MonadObelisk m => Bool -> Maybe String -> m ()
+nixShellForUnpackedPackages isPure cmd = withProjectRoot "." $ \root -> do
+  pkgs <- fmap toList . parsePackagesOrFail =<< getLocalPkgs root
+  nixShellWithPkgs root isPure False (packageInfoToNamePathMap pkgs) cmd
+
 -- | Relative paths to local packages of an obelisk project.
 --
 -- These are a combination of the obelisk predefined local packages,
@@ -310,7 +320,7 @@ withGhciScript
   -> (FilePath -> m ()) -- ^ Action to run with the path to generated temporary .ghci
   -> m ()
 withGhciScript packageInfos pathBase f = do
-  selfExe <- liftIO getExecutablePath
+  ghciSettings <- getGhciSessionSettings packageInfos pathBase
   let
     packageNames = Set.fromList $ map _cabalPackageInfo_packageName packageInfos
     modulesToLoad = mconcat
@@ -319,9 +329,7 @@ withGhciScript packageInfos pathBase f = do
       , [ "Frontend" | "frontend" `Set.member` packageNames ]
       ]
     dotGhci = unlines
-      -- TODO: Shell escape
-      [ ":set -F -pgmF " <> selfExe <> " -optF " <> preprocessorIdentifier <> " " <> unwords (map (("-optF " <>) . makeRelative pathBase . _cabalPackageInfo_packageFile) packageInfos)
-      , ":set -i" <> intercalate ":" (packageInfos >>= rootedSourceDirs)
+      [ ":set " <> unwords ghciSettings -- TODO: Shell escape
       , if null modulesToLoad then "" else ":load " <> unwords modulesToLoad
       , "import qualified Obelisk.Run"
       , "import qualified Frontend"
@@ -331,6 +339,20 @@ withGhciScript packageInfos pathBase f = do
     liftIO $ writeFile dotGhciPath dotGhci
     f dotGhciPath
 
+-- | Builds a list of options to pass to ghci or set in .ghci file that configures
+-- the preprocessor and source includes.
+getGhciSessionSettings
+  :: MonadObelisk m
+  => [CabalPackageInfo] -- ^ List of packages to load into ghci
+  -> FilePath -- ^ All paths written to the .ghci file will be relative to this path
+  -> m [String]
+getGhciSessionSettings packageInfos pathBase = do
+  selfExe <- liftIO getExecutablePath
+  -- TODO: Shell escape
+  pure
+    $  ["-F", "-pgmF", selfExe, "-optF", preprocessorIdentifier]
+    <> concatMap (\p -> ["-optF", makeRelative pathBase $ _cabalPackageInfo_packageFile p]) packageInfos
+    <> [ "-i" <> intercalate ":" (packageInfos >>= rootedSourceDirs) ]
   where
     rootedSourceDirs pkg = NE.toList $
       makeRelative pathBase . (_cabalPackageInfo_packageRoot pkg </>) <$> _cabalPackageInfo_sourceDirs pkg

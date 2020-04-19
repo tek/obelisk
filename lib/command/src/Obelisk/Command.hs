@@ -22,18 +22,18 @@ import Options.Applicative.Help.Pretty (text, (<$$>))
 import System.Directory
 import System.Environment
 import System.FilePath
-import qualified System.Info
 import System.IO (hIsTerminalDevice, stdout)
+import qualified System.Info
 import System.Posix.Process (executeFile)
 
 import Obelisk.App
 import Obelisk.CliApp
 import Obelisk.Command.Deploy
+import qualified Obelisk.Command.Preprocessor as Preprocessor
 import Obelisk.Command.Project
 import Obelisk.Command.Run
 import Obelisk.Command.Thunk
 import qualified Obelisk.Command.VmBuilder as VmBuilder
-import qualified Obelisk.Command.Preprocessor as Preprocessor
 
 
 data Args = Args
@@ -101,6 +101,7 @@ data ObInternal
    -- the preprocessor argument syntax is also handled outside
    -- optparse-applicative, but it shouldn't ever conflict with another syntax
    = ObInternal_ApplyPackages String String String [String]
+   | ObInternal_ExportGhciConfig
    deriving Show
 
 obCommand :: ArgsConfig -> Parser ObCommand
@@ -120,7 +121,13 @@ obCommand cfg = hsubparser
               text "Hint: To open the documentation you can pipe the output of this command like"
               <$$> text "ob doc reflex reflex-dom-core | xargs -n1 xdg-open")
     , command "hoogle" $ info (ObCommand_Hoogle <$> shellFlags <*> portOpt 8080) $ progDesc "Run a hoogle server locally for your project's dependency tree"
+    , command "internal" $ info (ObCommand_Internal <$> internalCommand) $ progDesc "Internal Obelisk commands with unstable APIs"
     ])
+
+internalCommand :: Parser ObInternal
+internalCommand = hsubparser $ mconcat
+  [ command "export-ghci-configuration" $ info (pure ObInternal_ExportGhciConfig) $ progDesc "Export the GHCi configuration used by ob run, etc.; useful for IDE integration"
+  ]
 
 packageNames :: Parser [String]
 packageNames = some (strArgument (metavar "PACKAGE-NAME..."))
@@ -135,7 +142,7 @@ deployCommand cfg = hsubparser $ mconcat
   where
     platformP = hsubparser $ mconcat
       [ command "android" $ info (pure (Android, [])) mempty
-      , command "ios" $ info ((,) <$> pure IOS <*> fmap pure (strArgument (metavar "TEAMID" <> help "Your Team ID - found in the Apple developer portal"))) mempty
+      , command "ios"     $ info ((,) <$> pure IOS <*> fmap pure (strArgument (metavar "TEAMID" <> help "Your Team ID - found in the Apple developer portal"))) mempty
       ]
 
     remoteBuilderParser :: Parser (Maybe RemoteBuilder)
@@ -246,6 +253,7 @@ thunkCommand = hsubparser $ mconcat
 data ShellOpts
   = ShellOpts
     { _shellOpts_shell :: String
+    , _shellOpts_forUnpacked :: Bool
     , _shellOpts_command :: Maybe String
     }
   deriving Show
@@ -256,9 +264,13 @@ shellFlags =
   <|> flag "ghc" "ghcjs" (long "ghcjs" <> help "Enter a shell having ghcjs rather than ghc")
   <|> strOption (short 'A' <> long "argument" <> metavar "NIXARG" <> help "Use the environment specified by the given nix argument of `shells'")
 
+forUnpackedFlagName :: String
+forUnpackedFlagName = "for-unpacked"
+
 shellOpts :: Parser ShellOpts
 shellOpts = ShellOpts
   <$> shellFlags
+  <*> flag False True (long forUnpackedFlagName <> help "Configure the shell for working on all unpacked packages in the project directory")
   <*> optional (strArgument (metavar "COMMAND"))
 
 portOpt :: Int -> Parser Int
@@ -394,8 +406,10 @@ ob = \case
     ThunkCommand_Pack thunks config -> for_ thunks (packThunk config)
   ObCommand_Repl -> runRepl
   ObCommand_Watch -> runWatch
-  ObCommand_Shell so -> withProjectRoot "." $ \root ->
-    projectShell root False (_shellOpts_shell so) (_shellOpts_command so)
+  ObCommand_Shell (ShellOpts shell' forUnpacked cmd)
+    | forUnpacked && shell' == "ghc" -> nixShellForUnpackedPackages False cmd
+    | forUnpacked -> failWith $ "--" <> T.pack forUnpackedFlagName <> " is only available for ghc shells"
+    | otherwise -> withProjectRoot "." $ \root -> projectShell root False shell' cmd
   ObCommand_Doc shell' pkgs -> withProjectRoot "." $ \root ->
     projectShell root False shell' (Just $ haddockCommand pkgs)
   ObCommand_Hoogle shell' port -> withProjectRoot "." $ \root -> do
@@ -403,6 +417,7 @@ ob = \case
   ObCommand_Internal icmd -> case icmd of
     ObInternal_ApplyPackages origPath inPath outPath packagePaths -> do
       liftIO $ Preprocessor.applyPackages origPath inPath outPath packagePaths
+    ObInternal_ExportGhciConfig -> liftIO . putStrLn . unlines =<< exportGhciConfig
 
 haddockCommand :: [String] -> String
 haddockCommand pkgs = unwords
