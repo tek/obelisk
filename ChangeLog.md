@@ -81,6 +81,8 @@ This project's release branch is `master`. This log is written from the perspect
 * `ob` commands now complain less on systems with umasks other than `0022`.
 * Ignore package environment files in `ob run` and `ob repl`.
 * Add `Obelisk.Route.Frontend.routeLinkDynAttr`.
+* Enable https in `ob run`
+* Add Docker support, for building minimal and customizable images
 
 ## v0.2.0.0 - 2019-8-17
 
