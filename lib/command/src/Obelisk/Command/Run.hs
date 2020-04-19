@@ -451,6 +451,7 @@ baseGhciOptions =
   [ "-ignore-dot-ghci"
   , "-no-user-package-db"
   , "-package-env", "-"
+  , "-hide-package", "base"
   ]
 
 -- | Run ghci repl
