@@ -430,7 +430,6 @@ getGhciSessionSettings
   -> Bool -- ^ Use relative paths
   -> m [String]
 getGhciSessionSettings (toList -> packageInfos) pathBase useRelativePaths = do
-  hideBase <- maybe False (const True) <$> liftIO (lookupEnv "HIDE_BASE")
   -- N.B. ghci settings do NOT support escaping in any way. To minimize the likelihood that
   -- paths-with-spaces ruin our day, we first canonicalize everything, and then relativize
   -- all paths to 'pathBase'.
@@ -443,19 +442,19 @@ getGhciSessionSettings (toList -> packageInfos) pathBase useRelativePaths = do
     pure (canonicalPkgFile `relativeTo'` canonicalPathBase, (`relativeTo'` canonicalPathBase) <$> canonicalSrcDirs)
 
   pure
-    $  baseGhciOptions hideBase
+    $  baseGhciOptions
     <> ["-F", "-pgmF", selfExe, "-optF", preprocessorIdentifier]
     <> concatMap (\p -> ["-optF", p]) pkgFiles
     <> [ "-i" <> intercalate ":" (concatMap toList pkgSrcPaths) ]
   where
     relativeTo' = if useRelativePaths then relativeTo else const
 
-baseGhciOptions :: Bool -> [String]
-baseGhciOptions hideBase =
+baseGhciOptions :: [String]
+baseGhciOptions =
   [ "-ignore-dot-ghci"
   , "-no-user-package-db"
   , "-package-env", "-"
-  ] <> if hideBase then ["-hide-package", "base"] else []
+  ]
 
 -- | Run ghci repl
 runGhciRepl
