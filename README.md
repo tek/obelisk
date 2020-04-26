@@ -13,7 +13,7 @@ Obelisk provides an easy way to develop and deploy your [Reflex](https://github.
   - [Running over HTTPS](#running-over-https)
   - [IDE Support](#ide-support)
     - [Terminal-based feedback](#terminal-based-feedback)
-    - [**Experimental** `ghcide` support](#experimental-ghcide-support)
+    - [Experimental `ghcide` support](#experimental-ghcide-support)
 - [Deploying](#deploying)
   - [Locally](#locally)
   - [Default EC2 Deployment](#default-ec2-deployment)
@@ -199,6 +199,7 @@ To try out the **experimental** [`ghcide`](https://github.com/digital-asset/ghci
       EOF
       chmod +x hie-bios.sh
       ```
+      * **Note:** In some projects you need to use `ob internal export-ghci-configuration --use-relative-paths` in this script instead. This is known to happen when your project contains symlinks to other packages.
   * Add `hie.yaml` to the root of your project:
       ```shell
       echo 'cradle: { bios: { program: hie-bios.sh } }' > hie.yaml

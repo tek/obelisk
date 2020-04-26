@@ -74,8 +74,8 @@ argsInfo cfg = info (args cfg <**> helper) $ mconcat
 initSource :: Parser InitSource
 initSource = foldl1 (<|>)
   [ pure InitSource_Default
-  , InitSource_Branch <$> strOption (long "branch" <> metavar "BRANCH")
-  , InitSource_Symlink <$> strOption (long "symlink" <> action "directory" <> metavar "PATH")
+  , InitSource_Branch <$> strOption (long "branch" <> metavar "BRANCH" <> help "Initialize the project using the given BRANCH of Obelisk's official repository")
+  , InitSource_Symlink <$> strOption (long "symlink" <> action "directory" <> metavar "PATH" <> help "(Use with caution) Initialize the project using the copy of Obelisk found at the given PATH")
   ]
 
 initForce :: Parser Bool
@@ -99,7 +99,9 @@ data ObInternal
    -- the preprocessor argument syntax is also handled outside
    -- optparse-applicative, but it shouldn't ever conflict with another syntax
    = ObInternal_ApplyPackages String String String [String]
-   | ObInternal_ExportGhciConfig [(FilePath, Interpret)]
+   | ObInternal_ExportGhciConfig
+      [(FilePath, Interpret)]
+      Bool -- ^ Use relative paths
    deriving Show
 
 obCommand :: ArgsConfig -> Parser ObCommand
@@ -124,8 +126,11 @@ obCommand cfg = hsubparser
 
 internalCommand :: Parser ObInternal
 internalCommand = hsubparser $ mconcat
-  [ command "export-ghci-configuration" $ info (ObInternal_ExportGhciConfig <$> interpretOpts) $ progDesc "Export the GHCi configuration used by ob run, etc.; useful for IDE integration"
+  [ command "export-ghci-configuration" $ info (ObInternal_ExportGhciConfig <$> interpretOpts <*> useRelativePathsFlag)
+      $ progDesc "Export the GHCi configuration used by ob run, etc.; useful for IDE integration"
   ]
+  where
+    useRelativePathsFlag = switch (long "use-relative-paths" <> help "Use relative paths")
 
 packageNames :: Parser [String]
 packageNames = some (strArgument (metavar "PACKAGE-NAME..."))
@@ -225,7 +230,6 @@ data ThunkCommand
   = ThunkCommand_Update ThunkUpdateConfig
   | ThunkCommand_Unpack
   | ThunkCommand_Pack ThunkPackConfig
-  | ThunkCommand_Init
   deriving Show
 
 thunkOption :: Parser ThunkOption
@@ -233,7 +237,6 @@ thunkOption = hsubparser $ mconcat
   [ command "update" $ info (thunkOptionWith $ ThunkCommand_Update <$> thunkUpdateConfig) $ progDesc "Update packed thunk to latest revision available on the tracked branch"
   , command "unpack" $ info (thunkOptionWith $ pure ThunkCommand_Unpack) $ progDesc "Unpack thunk into git checkout of revision it points to"
   , command "pack" $ info (thunkOptionWith $ ThunkCommand_Pack <$> thunkPackConfig) $ progDesc "Pack git checkout or unpacked thunk into thunk that points at the current branch's upstream"
-  , command "init" $ info (thunkOptionWith $ pure ThunkCommand_Init) $ progDesc "Initialize git checkout by converting it to an unpacked thunk"
   ]
   where
     thunkOptionWith f = ThunkOption
@@ -390,7 +393,6 @@ ob = \case
     ThunkCommand_Update config -> for_ thunks (updateThunkToLatest config)
     ThunkCommand_Unpack -> for_ thunks unpackThunk
     ThunkCommand_Pack config -> for_ thunks (packThunk config)
-    ThunkCommand_Init -> for_ thunks initThunk
     where
       thunks = _thunkOption_thunks to
   ObCommand_Repl interpretPathsList -> withInterpretPaths interpretPathsList runRepl
@@ -404,7 +406,8 @@ ob = \case
   ObCommand_Internal icmd -> case icmd of
     ObInternal_ApplyPackages origPath inPath outPath packagePaths -> do
       liftIO $ Preprocessor.applyPackages origPath inPath outPath packagePaths
-    ObInternal_ExportGhciConfig interpretPathsList -> liftIO . putStrLn . unlines =<< withInterpretPaths interpretPathsList exportGhciConfig
+    ObInternal_ExportGhciConfig interpretPathsList useRelativePaths ->
+      liftIO . putStrLn . unlines =<< withInterpretPaths interpretPathsList (exportGhciConfig useRelativePaths)
 
 -- | A helper for the common case that the command you want to run needs the project root and a resolved
 -- set of interpret paths.
